@@ -11,6 +11,9 @@ import sys
 
 np.set_printoptions(threshold=sys.maxsize)
 
+pi = np.pi
+e = np.e
+sqrt = np.sqrt
 
 class SensorModel:
 
@@ -31,11 +34,12 @@ class SensorModel:
 
         ####################################
         # Adjust these parameters
-        self.alpha_hit = 0
-        self.alpha_short = 0
-        self.alpha_max = 0
-        self.alpha_rand = 0
-        self.sigma_hit = 0
+        self.alpha_hit = 0.74
+        self.alpha_short = 0.07
+        self.alpha_max = 0.07
+        self.alpha_rand = 0.12
+        self.sigma_hit = 8.0
+        self.z_max = 200
 
         # Your sensor table will be a `table_width` x `table_width` np array:
         self.table_width = 201
@@ -66,6 +70,31 @@ class SensorModel:
             self.map_topic,
             self.map_callback,
             1)
+        
+
+    def p_hit(self, z, d, eta = 1):
+        if 0 <= z <= self.z_max:
+            return eta * e**(-(z - d)**2 / (2 * self.sigma_hit**2)) / sqrt(2 * pi * self.sigma_hit**2)
+
+        return 0
+
+    def p_short(self, z, d):
+        if 0 <= z <= d and d != 0:
+            return 2 * (1 - z/d)/d
+        
+        return 0
+
+    def p_max(self, z, d, eps = 1):
+        if self.z_max - eps <= z <= self.z_max:
+            return 1/eps
+        
+        return 0
+
+    def p_rand(self, z, d):
+        if 0 <= z <= self.z_max:
+            return 1/self.z_max
+        
+        return 0
 
     def precompute_sensor_model(self):
         """
@@ -87,7 +116,15 @@ class SensorModel:
             No return type. Directly modify `self.sensor_model_table`.
         """
 
-        raise NotImplementedError
+        # rows = i = z values
+        # cols = j = d values
+        for i in range(len(self.sensor_model_table)):
+            for j in range(len(self.sensor_model_table[0])):
+                p_update = self.alpha_hit * self.p_hit(i, j) + self.alpha_short * self.p_short(i, j) + self.alpha_max * self.p_max(i, j) + self.alpha_rand * self.p_rand(i, j)
+                self.sensor_model_table[i][j] = p_update
+        
+        # TODO normalize phit too
+        self.sensor_model_table/self.sensor_model_table.sum(axis=0,keepdims=1)
 
     def evaluate(self, particles, observation):
         """
@@ -123,7 +160,18 @@ class SensorModel:
 
         scans = self.scan_sim.scan(particles)
 
+        scale = self.map_resolution*self.lidar_scale_to_map_scale
+
+        scans_px = scans/scale # do i need to do more to this since its Nxm
+        obs_px = observation/scale
+
+        scans_px = np.clip(scans_px, 0, self.z_max)
+        obs_px = np.clip(obs_px, 0, self.z_max)
+
         ####################################
+
+        # sensor_model_table[d_values = scans, z_values = observations]
+        return self.sensor_model_table[scans_px, obs_px]
 
     def map_callback(self, map_msg):
         # Convert the map to a numpy array

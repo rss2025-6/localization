@@ -3,12 +3,20 @@ from localization.motion_model import MotionModel
 
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from sensor_msgs.msg import LaserScan
+from tf_transformations import euler_from_quaternion
 
 from rclpy.node import Node
 import rclpy
 
+import numpy as np
 assert rclpy
 
+pi = np.pi
+
+sin = np.sin
+cos = np.cos
+atan2 = np.arctan2
 
 class ParticleFilter(Node):
 
@@ -72,9 +80,76 @@ class ParticleFilter(Node):
         # your particles, ideally with some sort
         # of interactive interface in rviz
         #
+        self.particles = None
         # Publish a transformation frame between the map
         # and the particle_filter_frame.
 
+    # Determine the "average" (term used loosely) particle pose and publish that transform.
+    def averager(self):
+        avg_pose = np.mean(self.particles[:,:2], axis=0)
+
+        # get sum of sins & cos of angles to find avg theta
+        thetas = self.particles[:,2]
+        s_thetas = np.sum(sin(thetas))
+        c_thetas = np.sum(cos(thetas))
+
+        odom = Odometry()
+
+        odom.pose.pose.position.x = avg_pose[0]
+        odom.pose.pose.position.y = avg_pose[1]
+        odom.pose.pose.orientation = atan2(s_thetas, c_thetas)
+
+        self.odom_pub.publish(odom)
+
+    # Whenever you get odometry data use the motion model to update the particle positions
+    def odom_callback(self, msg):
+        x = msg.pose.pose.position.x
+        y = msg.pose.pose.position.y
+
+        orientation = msg.pose.pose.orientation
+
+        roll, pitch, yaw = euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+
+        if self.particles:
+            self.motion_model.evaluate(self.particles, [x, y, yaw])
+        
+        self.averager()
+
+    # Whenever you get sensor data use the sensor model to compute the particle probabilities. 
+    # Then resample the particles based on these probabilities
+    def laser_callback(self, msg):
+        if self.particles:
+            self.sensor_model.evaluate(self.particles, msg.ranges)
+        
+        self.averager()
+
+    # initial pose
+    def pose_callback(self, msg):
+
+        # x = msg.pose.pose.position.x
+        # y = msg.pose.pose.position.y
+
+        # orientation = msg.pose.pose.orientation
+
+        # roll, pitch, yaw = euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+
+        odom = Odometry()
+
+        # odom.pose.pose.position.x = x
+        # odom.pose.pose.position.y = y
+        odom.pose.pose.position = msg.pose.pose.position
+        odom.pose.pose.orientation = msg.pose.pose.orientation
+
+        self.odom_pub.publish(odom)
+
+        # Generate random distribution around x, y
+        num_particles = 200
+
+        x_samples = np.random.uniform(-2, 2, num_particles) + msg.pose.pose.position.x
+        y_samples = np.random.uniform(-2, 2, num_particles) + msg.pose.pose.position.y
+        theta_samples = np.random.uniform(-pi, pi, num_particles)
+
+        self.particles = np.hstack((x_samples.T, y_samples.T, theta_samples.T))
 
 def main(args=None):
     rclpy.init(args=args)
