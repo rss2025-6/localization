@@ -119,11 +119,17 @@ class SensorModel:
         # rows = i = z values
         # cols = j = d values
         for i in range(len(self.sensor_model_table)):
+            p_hit_sum = 0.0 # used to notmalize the p_hit
             for j in range(len(self.sensor_model_table[0])):
-                p_update = self.alpha_hit * self.p_hit(i, j) + self.alpha_short * self.p_short(i, j) + self.alpha_max * self.p_max(i, j) + self.alpha_rand * self.p_rand(i, j)
+                p_hit_sum += self.p_hit(i,j)
+            
+            norm_alpha_hit = self.alpha_hit/p_hit_sum
+            
+            for j in range(len(self.sensor_model_table[0])):
+                p_update = norm_alpha_hit * self.p_hit(i, j) + self.alpha_short * self.p_short(i, j) + self.alpha_max * self.p_max(i, j) + self.alpha_rand * self.p_rand(i, j)
                 self.sensor_model_table[i][j] = p_update
+
         
-        # TODO normalize phit too
         self.sensor_model_table/self.sensor_model_table.sum(axis=0,keepdims=1)
 
     def evaluate(self, particles, observation):
@@ -135,7 +141,7 @@ class SensorModel:
             particles: An Nx3 matrix of the form:
 
                 [x0 y0 theta0]
-                [x1 y0 theta1]
+                [x1 y1 theta1]
                 [    ...     ]
 
             observation: A vector of lidar data measured
