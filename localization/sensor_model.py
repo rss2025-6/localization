@@ -119,14 +119,17 @@ class SensorModel:
         # rows = i = z values
         # cols = j = d values
         for i in range(len(self.sensor_model_table)):
+            p_hits = []
             p_hit_sum = 0.0 # used to notmalize the p_hit
             for j in range(len(self.sensor_model_table[0])):
-                p_hit_sum += self.p_hit(i,j)
+                p_hit = self.p_hit(i,j)
+                p_hit_sum += p_hit
+                p_hits = p_hits.append(p_hit)
             
             norm_alpha_hit = self.alpha_hit/p_hit_sum
             
             for j in range(len(self.sensor_model_table[0])):
-                p_update = norm_alpha_hit * self.p_hit(i, j) + self.alpha_short * self.p_short(i, j) + self.alpha_max * self.p_max(i, j) + self.alpha_rand * self.p_rand(i, j)
+                p_update = norm_alpha_hit * p_hits[j] + self.alpha_short * self.p_short(i, j) + self.alpha_max * self.p_max(i, j) + self.alpha_rand * self.p_rand(i, j)
                 self.sensor_model_table[i][j] = p_update
 
         
