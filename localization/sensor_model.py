@@ -167,9 +167,10 @@ class SensorModel:
         # to perform ray tracing from all the particles.
         # This produces a matrix of size N x num_beams_per_particle 
 
+        # simulated scans for each particle
         scans = self.scan_sim.scan(particles)
 
-        scale = self.map_resolution*self.lidar_scale_to_map_scale
+        scale = self.resolution*self.lidar_scale_to_map_scale
 
         scans_px = scans/scale # do i need to do more to this since its Nxm
         obs_px = observation/scale
@@ -177,10 +178,18 @@ class SensorModel:
         scans_px = np.clip(scans_px, 0, self.z_max)
         obs_px = np.clip(obs_px, 0, self.z_max)
 
+        likelihood_table = np.ones((len(particles)))
+
+        for i in range(len(particles)):
+            for j in range(len(scans[0])):
+                range_i = scans[i, j]
+                likelihood_table[i] *= self.sensor_model_table[int(range_i), int(obs_px[j])]
+
         ####################################
 
+        return likelihood_table
         # sensor_model_table[d_values = scans, z_values = observations]
-        return self.sensor_model_table[scans_px, obs_px]
+        # return self.sensor_model_table[scans_px, obs_px]
 
     def map_callback(self, map_msg):
         # Convert the map to a numpy array
