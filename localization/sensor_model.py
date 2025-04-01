@@ -124,7 +124,7 @@ class SensorModel:
             for j in range(len(self.sensor_model_table[0])):
                 p_hit = self.p_hit(i,j)
                 p_hit_sum += p_hit
-                p_hits = p_hits.append(p_hit)
+                p_hits.append(p_hit)
             
             norm_alpha_hit = self.alpha_hit/p_hit_sum
             
