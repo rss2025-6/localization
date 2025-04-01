@@ -88,7 +88,8 @@ class ParticleFilter(Node):
 
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
-        avg_pose = np.mean(self.particles[:,:2], axis=0)
+
+        avg_pose = np.average(self.particles[:,:2], axis=0, weights=self.likelihood_table)
 
         # get sum of sins & cos of angles to find avg theta
         thetas = self.particles[:,2]
