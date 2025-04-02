@@ -142,6 +142,7 @@ class ParticleFilter(Node):
             # resamples = np.random.choice(a=self.particles, size=self.num_particles, p=self.likelihood_table)
             
             # self.particles = np.hstack(resamples)
+            self.particles = resamples
 
             self.get_logger().info(f"LASER, {self.particles}")
 
