@@ -96,8 +96,8 @@ class ParticleFilter(Node):
         # Get sum of sins & cos of angles to find avg theta
         # TODO: Do we need to add weights to angles as we did with poses?
         thetas = self.particles[:,2]
-        s_thetas = np.sum(sin(thetas))
-        c_thetas = np.sum(cos(thetas))
+        s_thetas = np.average(sin(thetas), axis=0, weights=self.likelihood_table)
+        c_thetas = np.average(cos(thetas), axis=0, weights=self.likelihood_table)
 
         # Generate odometry message
         odom = Odometry()
