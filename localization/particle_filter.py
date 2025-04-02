@@ -4,7 +4,7 @@ from localization.motion_model import MotionModel
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from sensor_msgs.msg import LaserScan
-from tf_transformations import euler_from_quaternion
+from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
 from rclpy.node import Node
 import rclpy
@@ -82,6 +82,7 @@ class ParticleFilter(Node):
         #
         self.particles = None
         self.likelihood_table = None
+        self.num_particles = 200
         # self.new_particles = None
         # Publish a transformation frame between the map
         # and the particle_filter_frame.
@@ -89,6 +90,7 @@ class ParticleFilter(Node):
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
 
+        # self.get_logger().info(f"AVERAGER, {self.particles}")
         avg_pose = np.average(self.particles[:,:2], axis=0, weights=self.likelihood_table)
 
         # get sum of sins & cos of angles to find avg theta
@@ -100,7 +102,14 @@ class ParticleFilter(Node):
 
         odom.pose.pose.position.x = avg_pose[0]
         odom.pose.pose.position.y = avg_pose[1]
-        odom.pose.pose.orientation = atan2(s_thetas, c_thetas)
+
+        # TODO: CHECK THIS
+        yaw = atan2(s_thetas, c_thetas)
+        quat = quaternion_from_euler(0, 0, yaw)
+        odom.pose.pose.orientation.x = quat[0]
+        odom.pose.pose.orientation.y = quat[1]
+        odom.pose.pose.orientation.z = quat[2]
+        odom.pose.pose.orientation.w = quat[3]
 
         self.odom_pub.publish(odom)
 
@@ -115,19 +124,28 @@ class ParticleFilter(Node):
         dx = msg.twist.twist.linear.x
         dy = msg.twist.twist.linear.y
         dtheta = msg.twist.twist.angular.z
-        if self.particles:
+        if self.particles is not None:
             # self.motion_model.evaluate(self.particles, [x, y, yaw])
             self.particles = self.motion_model.evaluate(self.particles, [dx, dy, dtheta])
         
-        self.averager()
+            self.averager()
 
     # Whenever you get sensor data use the sensor model to compute the particle probabilities. 
     # Then resample the particles based on these probabilities
     def laser_callback(self, msg):
-        if self.particles:
+        if self.particles is not None:
             self.likelihood_table = self.sensor_model.evaluate(self.particles, msg.ranges)
 
-        self.averager()
+            particle_inds = len(self.particles)
+            resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table)
+            resamples = self.particles[resample_inds, :]
+            # resamples = np.random.choice(a=self.particles, size=self.num_particles, p=self.likelihood_table)
+            
+            # self.particles = np.hstack(resamples)
+
+            self.get_logger().info(f"LASER, {self.particles}")
+
+            self.averager()
 
     # initial pose
     def pose_callback(self, msg):
@@ -149,15 +167,21 @@ class ParticleFilter(Node):
         self.odom_pub.publish(odom)
 
         # Generate random distribution around x, y
-        num_particles = 200
-        resamples = np.random.choice(self.particles, num_particles, self.likelihood_table)
-        
-        # x_samples = np.random.uniform(-2, 2, num_particles) + msg.pose.pose.position.x
-        # y_samples = np.random.uniform(-2, 2, num_particles) + msg.pose.pose.position.y
-        # theta_samples = np.random.uniform(-pi, pi, num_particles)
 
-        # self.particles = np.hstack((x_samples.T, y_samples.T, theta_samples.T))
-        self.particles = np.hstack(resamples)
+        # Not sure if we can use this resamling here because we need to generate an initial set of particles first
+        # particle_inds = len(self.particles)
+        # resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table)
+        # resamples = self.particles[resample_inds]
+        
+        x_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.x
+        y_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.y
+        theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
+
+        self.particles = np.hstack((x_samples, y_samples, theta_samples))
+
+        self.get_logger().info("PARTICLES INITIALIZED")
+
+        # self.particles = np.hstack(resamples)
 
 def main(args=None):
     rclpy.init(args=args)
