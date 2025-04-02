@@ -39,10 +39,10 @@ class SensorModel:
         self.alpha_max = 0.07
         self.alpha_rand = 0.12
         self.sigma_hit = 8.0
-        self.z_max = 201
 
         # Your sensor table will be a `table_width` x `table_width` np array:
         self.table_width = 201
+        self.z_max = self.table_width - 1
         ####################################
 
         node.get_logger().info("%s" % self.map_topic)
@@ -85,8 +85,8 @@ class SensorModel:
         return 0
 
     def p_max(self, z, d, eps = 1):
-        if self.z_max - eps <= z <= self.z_max:
-            return 1/eps
+        if z == self.z_max:
+            return 1
         
         return 0
 
@@ -181,7 +181,7 @@ class SensorModel:
 
         likelihood_table = np.ones((len(particles)))
 
-        for i in range(len(particles)):
+        for i in range(len(scans)):
             for j in range(len(scans[0])):
                 range_i = scans[i, j]
                 likelihood_table[i] *= self.sensor_model_table[int(range_i), int(obs_px[j])]
