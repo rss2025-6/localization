@@ -88,6 +88,7 @@ class ParticleFilter(Node):
         # and the particle_filter_frame.
 
         self.particles_pub = self.create_publisher(PoseArray, "/particles", 1)
+        self.prev_time = self.get_clock().now().to_msg().nanosec 
 
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
@@ -148,11 +149,14 @@ class ParticleFilter(Node):
 
     # Whenever you get odometry data use the motion model to update the particle positions
     def odom_callback(self, msg):
+        current_time = self.get_clock().now().to_msg().nanosec
+        dt = current_time - self.prev_time
+        self.prev_time = current_time
 
         # Get odometry velocity data
-        dx = msg.twist.twist.linear.x
-        dy = msg.twist.twist.linear.y
-        dtheta = msg.twist.twist.angular.z
+        dx = msg.twist.twist.linear.x * dt
+        dy = msg.twist.twist.linear.y * dt
+        dtheta = msg.twist.twist.angular.z * dt
 
         # Update particle positions if particles have been initialized based on odom
         if self.particles is not None:
