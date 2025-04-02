@@ -87,6 +87,8 @@ class ParticleFilter(Node):
         # Publish a transformation frame between the map
         # and the particle_filter_frame.
 
+        self.particles_pub = self.create_publisher(PoseArray, "/particles", 1)
+
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
 
@@ -121,6 +123,29 @@ class ParticleFilter(Node):
         # Publish odometry message
         self.odom_pub.publish(odom)
 
+        self.get_logger().info(f"x = {avg_pose[0]}, y = {avg_pose[1]}")
+
+        particle_msg = PoseArray()
+
+        poses = []
+        for p in self.particles:
+            pose_i = Pose()
+            pose_i.position.x = p[0]
+            pose_i.position.y = p[1]
+            pose_i.position.z = 0.
+
+            quat = quaternion_from_euler(0, 0, p[2])
+            pose_i.orientation.x = quat[0]
+            pose_i.orientation.y = quat[1]
+            pose_i.orientation.z = quat[2]
+            pose_i.orientation.w = quat[3]
+
+            poses.append(pose_i)
+        
+        particle_msg.header.frame_id = "/map"
+        particle_msg.poses = poses
+        self.particles_pub.publish(particle_msg)
+
     # Whenever you get odometry data use the motion model to update the particle positions
     def odom_callback(self, msg):
 
@@ -148,7 +173,7 @@ class ParticleFilter(Node):
 
             # Get indicies from which to sample
             particle_inds = len(self.particles)
-            resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table)
+            resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table/np.sum(self.likelihood_table))
 
             # Resample particles based on weights
             resamples = self.particles[resample_inds, :]
