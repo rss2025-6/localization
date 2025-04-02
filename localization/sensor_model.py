@@ -175,8 +175,8 @@ class SensorModel:
         scans_px = scans/scale # do i need to do more to this since its Nxm
         obs_px = observation/scale
 
-        scans_px = np.clip(scans_px, 0, self.z_max)
-        obs_px = np.clip(obs_px, 0, self.z_max)
+        scans_px = np.clip(scans_px, 0, self.z_max - 1)
+        obs_px = np.clip(obs_px, 0, self.z_max - 1)
 
         likelihood_table = np.ones((len(particles)))
 
