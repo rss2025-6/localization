@@ -2,7 +2,7 @@ from localization.sensor_model import SensorModel
 from localization.motion_model import MotionModel
 
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray, Pose
 from sensor_msgs.msg import LaserScan
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
@@ -90,20 +90,27 @@ class ParticleFilter(Node):
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
 
-        # self.get_logger().info(f"AVERAGER, {self.particles}")
+        # Get weigthed average position of all the particles
         avg_pose = np.average(self.particles[:,:2], axis=0, weights=self.likelihood_table)
 
-        # get sum of sins & cos of angles to find avg theta
+        # Get sum of sins & cos of angles to find avg theta
+        # TODO: Do we need to add weights to angles as we did with poses?
         thetas = self.particles[:,2]
         s_thetas = np.sum(sin(thetas))
         c_thetas = np.sum(cos(thetas))
 
+        # Generate odometry message
         odom = Odometry()
 
+        # Set frame to map
+        odom.child_frame_id = "/map"
+
+        # Set position based on average particle pose
         odom.pose.pose.position.x = avg_pose[0]
         odom.pose.pose.position.y = avg_pose[1]
+        odom.pose.pose.position.z = 0.
 
-        # TODO: CHECK THIS
+        # Set position based on average particle orientation
         yaw = atan2(s_thetas, c_thetas)
         quat = quaternion_from_euler(0, 0, yaw)
         odom.pose.pose.orientation.x = quat[0]
@@ -111,60 +118,59 @@ class ParticleFilter(Node):
         odom.pose.pose.orientation.z = quat[2]
         odom.pose.pose.orientation.w = quat[3]
 
+        # Publish odometry message
         self.odom_pub.publish(odom)
 
     # Whenever you get odometry data use the motion model to update the particle positions
     def odom_callback(self, msg):
-        # x = msg.pose.pose.position.x
-        # y = msg.pose.pose.position.y
 
-        # orientation = msg.pose.pose.orientation
-
-        # roll, pitch, yaw = euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+        # Get odometry velocity data
         dx = msg.twist.twist.linear.x
         dy = msg.twist.twist.linear.y
         dtheta = msg.twist.twist.angular.z
+
+        # Update particle positions if particles have been initialized based on odom
         if self.particles is not None:
-            # self.motion_model.evaluate(self.particles, [x, y, yaw])
             self.particles = self.motion_model.evaluate(self.particles, [dx, dy, dtheta])
         
+            # Publish average pose
             self.averager()
 
     # Whenever you get sensor data use the sensor model to compute the particle probabilities. 
     # Then resample the particles based on these probabilities
     def laser_callback(self, msg):
-        if self.particles is not None:
-            self.likelihood_table = self.sensor_model.evaluate(self.particles, msg.ranges)
 
+        # Update particle positions if particles have been initialized based on lidar
+        if self.particles is not None:
+
+            # Get likelihood table
+            self.likelihood_table = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))
+
+            # Get indicies from which to sample
             particle_inds = len(self.particles)
             resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table)
+
+            # Resample particles based on weights
             resamples = self.particles[resample_inds, :]
             # resamples = np.random.choice(a=self.particles, size=self.num_particles, p=self.likelihood_table)
             
             # self.particles = np.hstack(resamples)
             self.particles = resamples
 
-            self.get_logger().info(f"LASER, {self.particles}")
-
             self.averager()
 
-    # initial pose
+    # Initialize pose based on 2D Pose estimate
     def pose_callback(self, msg):
 
-        # x = msg.pose.pose.position.x
-        # y = msg.pose.pose.position.y
-
-        # orientation = msg.pose.pose.orientation
-
-        # roll, pitch, yaw = euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
-
+        # Create odom object and set frame to map
         odom = Odometry()
+        odom.child_frame_id = "/map"
 
-        # odom.pose.pose.position.x = x
-        # odom.pose.pose.position.y = y
+        # Set position and orientation based on click
         odom.pose.pose.position = msg.pose.pose.position
         odom.pose.pose.orientation = msg.pose.pose.orientation
 
+        # Publish pose
         self.odom_pub.publish(odom)
 
         # Generate random distribution around x, y
@@ -174,15 +180,15 @@ class ParticleFilter(Node):
         # resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table)
         # resamples = self.particles[resample_inds]
         
+        # Generate initial set of samples around click
         x_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.x
         y_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.y
         theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
 
+        # Set particles
         self.particles = np.hstack((x_samples, y_samples, theta_samples))
 
         self.get_logger().info("PARTICLES INITIALIZED")
-
-        # self.particles = np.hstack(resamples)
 
 def main(args=None):
     rclpy.init(args=args)
