@@ -65,7 +65,7 @@ class MotionModel:
             T_particle = np.vstack((T_particle, np.array([[0,0,1]])))
 
             T_k = T_particle @ T_odom
-            x_update = np.vstack((np.array([T_k[:2,2]]).T, np.array([[np.arctan2(T_k[1,0], T_k[0,0])]]))).T
+            x_update = np.array([*T_k[:2,2], np.arctan2(T_k[1,0], T_k[0,0])])
 
             new_particles[i]=x_update
 
