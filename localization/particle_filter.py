@@ -40,9 +40,9 @@ class ParticleFilter(Node):
         scan_topic = self.get_parameter("scan_topic").get_parameter_value().string_value
         odom_topic = self.get_parameter("odom_topic").get_parameter_value().string_value
 
-        self.laser_sub = self.create_subscription(LaserScan, scan_topic,
-                                                  self.laser_callback,
-                                                  1)
+        # self.laser_sub = self.create_subscription(LaserScan, scan_topic,
+        #                                           self.laser_callback,
+        #                                           1)
 
         self.odom_sub = self.create_subscription(Odometry, odom_topic,
                                                  self.odom_callback,
@@ -88,7 +88,10 @@ class ParticleFilter(Node):
         # and the particle_filter_frame.
 
         self.particles_pub = self.create_publisher(PoseArray, "/particles", 1)
-        self.prev_time = self.get_clock().now().to_msg().nanosec 
+        # self.prev_time = self.get_clock().now().to_msg().nanosec 
+        self.prev_time = self.get_clock().now().nanoseconds
+
+        self.ct = 0
 
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
@@ -125,7 +128,7 @@ class ParticleFilter(Node):
         # Publish odometry message
         self.odom_pub.publish(odom)
 
-        self.get_logger().info(f"x = {avg_pose[0]}, y = {avg_pose[1]}")
+        # self.get_logger().info(f"x = {avg_pose[0]}, y = {avg_pose[1]}")
 
         particle_msg = PoseArray()
 
@@ -150,18 +153,27 @@ class ParticleFilter(Node):
 
     # Whenever you get odometry data use the motion model to update the particle positions
     def odom_callback(self, msg):
-        current_time = self.get_clock().now().to_msg().nanosec
-        dt = current_time - self.prev_time
+        self.ct += 1
+        self.get_logger().info(f"ct = {self.ct}")
+        # current_time = self.get_clock().now().to_msg().nanosec
+        current_time = self.get_clock().now().nanoseconds
+        dt = (current_time - self.prev_time) * 1e-9
         self.prev_time = current_time
+
+        # self.get_logger().info(f"dt = {current_time}")
 
         # Get odometry velocity data
         dx = msg.twist.twist.linear.x * dt
         dy = msg.twist.twist.linear.y * dt
         dtheta = msg.twist.twist.angular.z * dt
 
+        # self.get_logger().info(f"dt = {dt}")
+
         # Update particle positions if particles have been initialized based on odom
         if self.particles is not None:
             self.particles = self.motion_model.evaluate(self.particles, [dx, dy, dtheta])
+
+            # print(self.particles[0])
         
             # Publish average pose
             self.averager()
@@ -207,14 +219,17 @@ class ParticleFilter(Node):
         # Generate random distribution around x, y
 
         # Not sure if we can use this resamling here because we need to generate an initial set of particles first
-        # particle_inds = len(self.particles)
-        # resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table)
-        # resamples = self.particles[resample_inds]
         
         # Generate initial set of samples around click
         x_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.x
         y_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.y
-        theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
+        # theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
+        x = msg.pose.pose.orientation.x
+        y = msg.pose.pose.orientation.y
+        z = msg.pose.pose.orientation.z
+        w = msg.pose.pose.orientation.w
+        r, p, yaw = euler_from_quaternion([x, y, z, w])
+        theta_samples = yaw * np.ones((self.num_particles,1))
 
         # Set particles
         self.particles = np.hstack((x_samples, y_samples, theta_samples))
