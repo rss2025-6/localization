@@ -46,13 +46,23 @@ class MotionModel:
         new_particles = np.empty(particles.shape)
         del_pos = np.array([odometry[:2]]).T
         theta_w_r = odometry[2]
+
+        # Transpose of odometry
+        T_odom = np.array([[cos(theta_w_r), -sin(theta_w_r)], [sin(theta_w_r), cos(theta_w_r)]])
+        T_odom = np.hstack(T_odom, del_pos)
+        T_odom = np.vstack(T_odom, np.array([[0,0,1]]))
+
         for i in range(len(particles)):
             pose = particles[i]
             x_k1 = np.array([pose[:2]]).T
             theta_t1 = pose[-1]
             R_w_r = np.array([[cos(theta_t1), -sin(theta_t1)], [sin(theta_t1), cos(theta_t1)]])
-            x_k = R_w_r @ del_pos + x_k1 + noise
-            x_update = np.vstack((x_k, theta_t1 +theta_w_r)).T
+            T_particle = np.hstack(R_w_r, x_k1)
+            T_particle = np.vstack(T_particle, np.array([[0,0,1]]))
+
+            T_k = T_particle @ T_odom
+            # x_k = R_w_r @ del_pos + x_k1 + noise
+            x_update = np.vstack((T_k[:2,2], np.array([[np.arccos(T_k[0,0])]]))).T
             new_particles[i]=x_update
 
         return new_particles
