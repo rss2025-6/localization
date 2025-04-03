@@ -36,25 +36,31 @@ class MotionModel:
         """
 
         ####################################
-        if self.deterministic:
-            noise = np.array([[0],[0]])
-        else:
-            rng = np.random.default_rng()
-            variance = .1 # Change this to increase or decrease the noise distribution
-            noise = np.array([[rng.normal(0, variance, None)], [rng.normal(0, variance, None)]])
-    
         new_particles = np.empty(particles.shape)
         del_pos = np.array([odometry[:2]]).T
         theta_w_r = odometry[2]
 
-        # Transpose of odometry
-        T_odom = np.array([[cos(theta_w_r), -sin(theta_w_r)], [sin(theta_w_r), cos(theta_w_r)]])
-
-        T_odom = np.hstack((T_odom, del_pos))
-
-        T_odom = np.vstack((T_odom, np.array([[0,0,1]])))
+        # T_odom = np.array([[cos(theta_w_r), -sin(theta_w_r)], [sin(theta_w_r), cos(theta_w_r)]])
+        # T_odom = np.hstack((T_odom, del_pos))
+        # T_odom = np.vstack((T_odom, np.array([[0,0,1]])))
 
         for i in range(len(particles)):
+            if self.deterministic:
+                T_odom = np.array([[cos(theta_w_r), -sin(theta_w_r)], [sin(theta_w_r), cos(theta_w_r)]])
+                T_odom = np.hstack((T_odom, del_pos))
+                T_odom = np.vstack((T_odom, np.array([[0,0,1]])))
+            else:
+                rng = np.random.default_rng()
+                variance = .1 # Change this to increase or decrease the noise distribution
+                new_theta_w_r = theta_w_r + rng.normal(0, variance, None)
+                T_odom = np.array([[cos(new_theta_w_r), -sin(new_theta_w_r)], [sin(new_theta_w_r), cos(new_theta_w_r)]])
+                T_odom = np.hstack((T_odom, del_pos))
+                T_odom = np.vstack((T_odom, np.array([[0,0,1]])))
+                T_odom[0,2] += rng.normal(0, variance, None)
+                T_odom[1,2] += rng.normal(0, variance, None)
+
+                #np.array([[rng.normal(0, variance, None)], [rng.normal(0, variance, None)]])
+
             pose = particles[i]
             x_k1 = np.array([pose[:2]]).T
             theta_t1 = pose[-1]
