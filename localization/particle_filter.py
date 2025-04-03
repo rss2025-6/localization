@@ -106,7 +106,8 @@ class ParticleFilter(Node):
         odom = Odometry()
 
         # Set frame to map
-        odom.child_frame_id = "/map"
+        odom.header.frame_id = "/map"
+        odom.child_frame_id = "/base_link_pf"
 
         # Set position based on average particle pose
         odom.pose.pose.position.x = avg_pose[0]
@@ -193,7 +194,8 @@ class ParticleFilter(Node):
 
         # Create odom object and set frame to map
         odom = Odometry()
-        odom.child_frame_id = "/map"
+        odom.header.frame_id = "/map"
+        odom.child_frame_id = "/base_link_pf"
 
         # Set position and orientation based on click
         odom.pose.pose.position = msg.pose.pose.position
