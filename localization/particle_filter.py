@@ -221,9 +221,15 @@ class ParticleFilter(Node):
         # Not sure if we can use this resamling here because we need to generate an initial set of particles first
         
         # Generate initial set of samples around click
+        std = 2
         x_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.x
         y_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.y
-        # theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
+        
+        # x_samples = np.random.normal(msg.pose.pose.position.x, std, (self.num_particles,1))
+        # y_samples = np.random.normal(msg.pose.pose.position.y, std, (self.num_particles,1))
+
+        # TODO: BIAS TOWARD CURRENT
+        theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
         x = msg.pose.pose.orientation.x
         y = msg.pose.pose.orientation.y
         z = msg.pose.pose.orientation.z
