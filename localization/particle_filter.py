@@ -225,13 +225,16 @@ class ParticleFilter(Node):
         # y_samples = np.random.normal(msg.pose.pose.position.y, std, (self.num_particles,1))
 
         # TODO: BIAS TOWARD CURRENT
-        theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
+        # theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
         x = msg.pose.pose.orientation.x
         y = msg.pose.pose.orientation.y
         z = msg.pose.pose.orientation.z
         w = msg.pose.pose.orientation.w
         r, p, yaw = euler_from_quaternion([x, y, z, w])
-        theta_samples = yaw * np.ones((self.num_particles,1))
+        # theta_samples = yaw * np.ones((self.num_particles,1))
+        theta_samples = np.random.uniform(-pi/6, pi/6, (self.num_particles,1)) + yaw
+
+
 
         # Set particles
         self.particles = np.hstack((x_samples, y_samples, theta_samples))
