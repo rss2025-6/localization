@@ -36,9 +36,10 @@ class ParticleFilter(Node):
         
         self.declare_parameter('odom_topic', "/odom")
         self.declare_parameter('scan_topic', "/scan")
-
+        self.declare_parameter('pow_value', 1/3)
         scan_topic = self.get_parameter("scan_topic").get_parameter_value().string_value
         odom_topic = self.get_parameter("odom_topic").get_parameter_value().string_value
+        self.pow_value = self.get_parameter("pow_value").get_parameter_value().double_value
 
         # self.laser_sub = self.create_subscription(LaserScan, scan_topic,
         #                                           self.laser_callback,
@@ -182,7 +183,7 @@ class ParticleFilter(Node):
         if self.particles is not None:
 
             # Get likelihood table
-            self.likelihood_table = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))
+            self.likelihood_table = np.power(self.sensor_model.evaluate(self.particles, np.array(msg.ranges)), self.pow_value)
 
             # Get indicies from which to sample
             particle_inds = len(self.particles)
