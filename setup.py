@@ -42,6 +42,7 @@ setup(
             'straight_line = localization.straight_line:main',
             'sensor_model_test = localization.test.sensor_model_test:main',
             'motion_model_test = localization.test.motion_model_test:main',
+            'wall_follower = localization.wall_follower:main',
         ],
     },
 
