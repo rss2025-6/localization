@@ -131,7 +131,6 @@ class SensorModel:
         p_hits *= self.alpha_hit
 
         self.sensor_model_table += p_hits
-
         
         self.sensor_model_table/=np.sum(self.sensor_model_table, axis=0,keepdims=1)
 
@@ -167,30 +166,32 @@ class SensorModel:
         # to perform ray tracing from all the particles.
         # This produces a matrix of size N x num_beams_per_particle 
 
-        # simulated scans for each particle
+        # Scale to convert from meters to pixels
+        scale = self.resolution * self.lidar_scale_to_map_scale
+
+        # Simulated scans (d values) for each particle
         scans = self.scan_sim.scan(particles)
 
-        scale = self.resolution*self.lidar_scale_to_map_scale
-
+        # Convert scans to pixels
         scans_px = scans/scale # do i need to do more to this since its Nxm
-        obs_px = observation/scale
-
-        # TODO CHECK THIS
         scans_px = np.clip(scans_px, 0, self.z_max)
+
+        # Convert observations (z values) to pixels
+        obs_px = observation/scale
         obs_px = np.clip(obs_px, 0, self.z_max)
 
+        # Initialize likelihood table
         likelihood_table = np.ones((len(particles)))
 
-        for i in range(len(scans)):
-            for j in range(len(scans[0])):
-                range_i = scans[i, j]
-                likelihood_table[i] *= self.sensor_model_table[int(range_i), int(obs_px[j])]
+        # Calculate likelihood for each (z, d) = (observations, scans) pair
+        for i in range(len(scans_px)):
+            for j in range(len(obs_px)):
+                range_i = scans_px[i, j]
+                likelihood_table[i] *= self.sensor_model_table[int(obs_px[j]), int(range_i)]
 
         ####################################
 
         return likelihood_table
-        # sensor_model_table[d_values = scans, z_values = observations]
-        # return self.sensor_model_table[scans_px, obs_px]
 
     def map_callback(self, map_msg):
         # Convert the map to a numpy array

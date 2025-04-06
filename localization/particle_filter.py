@@ -36,14 +36,14 @@ class ParticleFilter(Node):
         
         self.declare_parameter('odom_topic', "/odom")
         self.declare_parameter('scan_topic', "/scan")
-        self.declare_parameter('pow_value', 1/3)
+        self.declare_parameter('pow_value', 1)
         scan_topic = self.get_parameter("scan_topic").get_parameter_value().string_value
         odom_topic = self.get_parameter("odom_topic").get_parameter_value().string_value
         self.pow_value = self.get_parameter("pow_value").get_parameter_value().double_value
 
-        # self.laser_sub = self.create_subscription(LaserScan, scan_topic,
-        #                                           self.laser_callback,
-        #                                           1)
+        self.laser_sub = self.create_subscription(LaserScan, scan_topic,
+                                                  self.laser_callback,
+                                                  1)
 
         self.odom_sub = self.create_subscription(Odometry, odom_topic,
                                                  self.odom_callback,
@@ -68,6 +68,9 @@ class ParticleFilter(Node):
 
         self.odom_pub = self.create_publisher(Odometry, "/pf/pose/odom", 1)
 
+        # Initialize publisher for particles array
+        self.particles_pub = self.create_publisher(PoseArray, "/particles", 1)
+
         # Initialize the models
         self.motion_model = MotionModel(self)
         self.sensor_model = SensorModel(self)
@@ -81,16 +84,21 @@ class ParticleFilter(Node):
         # your particles, ideally with some sort
         # of interactive interface in rviz
         #
+
+        # Initialize particles, likelihood table, and number of particles
         self.particles = None
         self.likelihood_table = None
         self.num_particles = 200
-        # self.new_particles = None
+
+        # Initialize variables so the laser update is published less freqently than odom
+        self.laser_ct = 0
+        self.laser_rate = 5
+
+        # Initialize previous time for odom update
+        self.prev_time = self.get_clock().now().nanoseconds
+
         # Publish a transformation frame between the map
         # and the particle_filter_frame.
-
-        self.particles_pub = self.create_publisher(PoseArray, "/particles", 1)
-        # self.prev_time = self.get_clock().now().to_msg().nanosec 
-        self.prev_time = self.get_clock().now().nanoseconds
 
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
@@ -98,8 +106,7 @@ class ParticleFilter(Node):
         # Get weigthed average position of all the particles
         avg_pose = np.average(self.particles[:,:2], axis=0, weights=self.likelihood_table)
 
-        # Get sum of sins & cos of angles to find avg theta
-        # TODO: Do we need to add weights to angles as we did with poses?
+        # Get weighted sum of sins & cos of angles to find average theta
         thetas = self.particles[:,2]
         s_thetas = np.average(sin(thetas), axis=0, weights=self.likelihood_table)
         c_thetas = np.average(cos(thetas), axis=0, weights=self.likelihood_table)
@@ -127,76 +134,90 @@ class ParticleFilter(Node):
         # Publish odometry message
         self.odom_pub.publish(odom)
 
-        # self.get_logger().info(f"x = {avg_pose[0]}, y = {avg_pose[1]}")
-
+        # Initialize pose array to publish particles
         particle_msg = PoseArray()
 
+        # Initialize particle poses
         poses = []
+
+        # Iterate through particles
         for p in self.particles:
+
+            # Initialize pose message
             pose_i = Pose()
+
+            # Set particle position
             pose_i.position.x = p[0]
             pose_i.position.y = p[1]
             pose_i.position.z = 0.
 
+            # Set particle orientation
             quat = quaternion_from_euler(0, 0, p[2])
             pose_i.orientation.x = quat[0]
             pose_i.orientation.y = quat[1]
             pose_i.orientation.z = quat[2]
             pose_i.orientation.w = quat[3]
 
+            # Append particles to pose array
             poses.append(pose_i)
         
+        # Set frame id to map
         particle_msg.header.frame_id = "/map"
+
+        # Set particles poses
         particle_msg.poses = poses
+
+        # Publish particles
         self.particles_pub.publish(particle_msg)
 
     # Whenever you get odometry data use the motion model to update the particle positions
     def odom_callback(self, msg):
-        # current_time = self.get_clock().now().to_msg().nanosec
+        
+        # Get the current time
         current_time = self.get_clock().now().nanoseconds
+
+        # Calculte dt
         dt = (current_time - self.prev_time) * 1e-9
+
+        # Save the current time as previous time for next update
         self.prev_time = current_time
 
-        # self.get_logger().info(f"dt = {current_time}")
-
-        # Get odometry velocity data
+        # Approximate dx, dy, and dtheta based on dt and velocities
         dx = msg.twist.twist.linear.x * dt
         dy = msg.twist.twist.linear.y * dt
         dtheta = msg.twist.twist.angular.z * dt
 
-        # self.get_logger().info(f"dt = {dt}")
-
         # Update particle positions if particles have been initialized based on odom
         if self.particles is not None:
             self.particles = self.motion_model.evaluate(self.particles, [dx, dy, dtheta])
-
-            # print(self.particles[0])
         
-            # Publish average pose
+            # Publish average pose and particle updates
             self.averager()
 
     # Whenever you get sensor data use the sensor model to compute the particle probabilities. 
     # Then resample the particles based on these probabilities
     def laser_callback(self, msg):
 
+        # Increase count to determine next update
+        self.laser_ct += 1
+
         # Update particle positions if particles have been initialized based on lidar
-        if self.particles is not None:
+        if self.particles is not None and not self.laser_ct % self.laser_rate:
 
             # Get likelihood table
-            self.likelihood_table = np.power(self.sensor_model.evaluate(self.particles, np.array(msg.ranges)), self.pow_value)
+            self.likelihood_table = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))**self.pow_value
+            self.likelihood_table /= np.sum(self.likelihood_table)
 
             # Get indicies from which to sample
-            particle_inds = len(self.particles)
-            resample_inds = np.random.choice(a=particle_inds, size=self.num_particles, p=self.likelihood_table/np.sum(self.likelihood_table))
+            resample_inds = np.random.choice(a=self.num_particles, size=self.num_particles, p=self.likelihood_table)
 
             # Resample particles based on weights
-            resamples = self.particles[resample_inds, :]
-            # resamples = np.random.choice(a=self.particles, size=self.num_particles, p=self.likelihood_table)
-            
-            # self.particles = np.hstack(resamples)
-            self.particles = resamples
+            self.particles = self.particles[resample_inds, :]
 
+            # Publish average pose and particle updates
             self.averager()
+
+            # self.get_logger().info("LASER UPDATE")
 
     # Initialize pose based on 2D Pose estimate
     def pose_callback(self, msg):
@@ -206,36 +227,35 @@ class ParticleFilter(Node):
         odom.header.frame_id = "/map"
         odom.child_frame_id = "/base_link_pf"
 
+        pose = msg.pose.pose.position
+        orient = msg.pose.pose.orientation
+
         # Set position and orientation based on click
-        odom.pose.pose.position = msg.pose.pose.position
-        odom.pose.pose.orientation = msg.pose.pose.orientation
+        odom.pose.pose.position = pose
+        odom.pose.pose.orientation = orient
 
         # Publish pose
         self.odom_pub.publish(odom)
 
-        # Generate random distribution around x, y
+        # Generate random normal distribution around x, y of click
+        std = 0.3
+        x_samples = np.random.normal(pose.x, std, (self.num_particles - 1,1)) #+ msg.pose.pose.position.x
+        y_samples = np.random.normal(pose.y, std, (self.num_particles - 1,1)) #+ msg.pose.pose.position.y
 
-        # Not sure if we can use this resamling here because we need to generate an initial set of particles first
-        
-        # Generate initial set of samples around click
-        std = 2
-        x_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.x
-        y_samples = np.random.uniform(-2, 2, (self.num_particles,1)) + msg.pose.pose.position.y
-        
-        # x_samples = np.random.normal(msg.pose.pose.position.x, std, (self.num_particles,1))
-        # y_samples = np.random.normal(msg.pose.pose.position.y, std, (self.num_particles,1))
-
-        # TODO: BIAS TOWARD CURRENT
-        # theta_samples = np.random.uniform(-pi, pi, (self.num_particles,1))
-        x = msg.pose.pose.orientation.x
-        y = msg.pose.pose.orientation.y
-        z = msg.pose.pose.orientation.z
-        w = msg.pose.pose.orientation.w
+        # Get yaw value of click
+        x = orient.x
+        y = orient.y
+        z = orient.z
+        w = orient.w
         r, p, yaw = euler_from_quaternion([x, y, z, w])
-        # theta_samples = yaw * np.ones((self.num_particles,1))
-        theta_samples = np.random.uniform(-pi/6, pi/6, (self.num_particles,1)) + yaw
 
+        # Generate theta values pulled from a uniform distribution of +- 15°
+        theta_samples = np.random.uniform(-pi/12, pi/12, (self.num_particles - 1,1)) + yaw
 
+        # Add one particle at exactly the click pose
+        x_samples = np.vstack((x_samples, pose.x))
+        y_samples = np.vstack((y_samples, pose.y))
+        theta_samples = np.vstack((theta_samples, yaw))
 
         # Set particles
         self.particles = np.hstack((x_samples, y_samples, theta_samples))
