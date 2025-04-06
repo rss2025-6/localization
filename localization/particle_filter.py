@@ -205,8 +205,13 @@ class ParticleFilter(Node):
         if self.particles is not None and not self.laser_ct % self.laser_rate:
 
             # Get likelihood table
-            self.likelihood_table = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))**self.pow_value
+            
+            idx = np.linspace(msg.angle_min, msg.angle_max, 100)
+            angles_all = np.linspace(msg.angle_min, msg.angle_max, (msg.angle_max-msg.angle_min)/msg.angle_increment+1)
+            lidar_ranges=np.interp(idx, angles_all, msg.ranges)
+            self.likelihood_table = self.sensor_model.evaluate(self.particles, lidar_ranges)**self.pow_value
             self.likelihood_table /= np.sum(self.likelihood_table)
+            
 
             # Get indicies from which to sample
             resample_inds = np.random.choice(a=self.num_particles, size=self.num_particles, p=self.likelihood_table)
