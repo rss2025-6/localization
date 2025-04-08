@@ -51,7 +51,7 @@ class MotionModel:
                 T_odom = np.vstack((T_odom, np.array([[0,0,1]])))
             else:
                 rng = np.random.default_rng()
-                variance = .01 # Change this to increase or decrease the noise distribution
+                variance = .005 # Change this to increase or decrease the noise distribution
                 new_theta_w_r = theta_w_r + rng.normal(0, variance, None)
                 T_odom = np.array([[cos(new_theta_w_r), -sin(new_theta_w_r)], [sin(new_theta_w_r), cos(new_theta_w_r)]])
                 T_odom = np.hstack((T_odom, del_pos))

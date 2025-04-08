@@ -2,13 +2,14 @@ from localization.sensor_model import SensorModel
 from localization.motion_model import MotionModel
 
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray, Pose
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray, Pose, TransformStamped
 from sensor_msgs.msg import LaserScan
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
-
+import tf2_ros
+from tf2_ros import TransformBroadcaster
 from rclpy.node import Node
 import rclpy
-
+from transforms3d.quaternions import quat2mat, mat2quat
 import numpy as np
 assert rclpy
 
@@ -26,6 +27,17 @@ class ParticleFilter(Node):
         self.declare_parameter('particle_filter_frame', "default")
         self.particle_filter_frame = self.get_parameter('particle_filter_frame').get_parameter_value().string_value
 
+        # Initialize transform listener
+        self.buffer = tf2_ros.Buffer()
+        self.listener = tf2_ros.TransformListener(self.buffer, self)
+
+        # Initialize the transform broadcaster
+        self.tf_broadcaster = TransformBroadcaster(self)
+
+        # Initialize transform listener
+        self.buffer = tf2_ros.Buffer()
+        self.listener = tf2_ros.TransformListener(self.buffer, self)
+
         #  *Important Note #1:* It is critical for your particle
         #     filter to obtain the following topic names from the
         #     parameters for the autograder to work correctly. Note
@@ -37,13 +49,16 @@ class ParticleFilter(Node):
         self.declare_parameter('odom_topic', "/odom")
         self.declare_parameter('scan_topic', "/scan")
         self.declare_parameter('pow_value', 1)
+        #self.declare_parameter('num_beams_per_particle', 200)
+        #self.num_beams_per_particle = self.get_parameter("num_beams_per_particle").get_parameter_value().integer_value
         scan_topic = self.get_parameter("scan_topic").get_parameter_value().string_value
         odom_topic = self.get_parameter("odom_topic").get_parameter_value().string_value
         self.pow_value = self.get_parameter("pow_value").get_parameter_value().double_value
 
+        self.tf_broadcaster = TransformBroadcaster(self)
         self.laser_sub = self.create_subscription(LaserScan, scan_topic,
                                                   self.laser_callback,
-                                                  1)
+                                                 1)
 
         self.odom_sub = self.create_subscription(Odometry, odom_topic,
                                                  self.odom_callback,
@@ -92,7 +107,7 @@ class ParticleFilter(Node):
 
         # Initialize variables so the laser update is published less freqently than odom
         self.laser_ct = 0
-        self.laser_rate = 5
+        self.laser_rate = 50
 
         # Initialize previous time for odom update
         self.prev_time = self.get_clock().now().nanoseconds
@@ -100,23 +115,70 @@ class ParticleFilter(Node):
         # Publish a transformation frame between the map
         # and the particle_filter_frame.
 
+    # create T matrix based on position [[x],[y],[z]] and orientation [x,y,z,w]
+    def pose2arr(self, p, q):
+
+        # Find rotation matrix, R, from quaternion
+        R = quat2mat(q)
+
+        # create T
+        T = np.hstack((R, p))  
+        T = np.vstack((T, [0,0,0,1]))
+
+        return T
+    
+    def sendBroadcast(self, header_frame, child_frame, T):
+
+        # initialize transform
+        tf = TransformStamped()
+
+        # setup header
+        tf.header.stamp = self.get_clock().now().to_msg()
+        tf.header.frame_id = header_frame
+
+        # set child
+        tf.child_frame_id = child_frame
+
+        # get position & orientation data from T
+        p = T[:3, 3]
+        q = mat2quat(T[:3, :3])
+
+        # set position
+        tf.transform.translation.x = p[0]
+        tf.transform.translation.y = p[1]
+        tf.transform.translation.z = p[2]
+
+        # set orientation
+        tf.transform.rotation.x = q[0]
+        tf.transform.rotation.y = q[1]
+        tf.transform.rotation.z = q[2]
+        tf.transform.rotation.w = q[3]
+
+        # broadcast transform
+        self.tf_broadcaster.sendTransform(tf)
+
+
     # Determine the "average" (term used loosely) particle pose and publish that transform.
     def averager(self):
 
         # Get weigthed average position of all the particles
-        avg_pose = np.average(self.particles[:,:2], axis=0, weights=self.likelihood_table)
+        #avg_pose = np.average(self.particles[:,:2], axis=0, weights=self.likelihood_table)
+        avg_pose = np.average(self.particles[:, :2], axis = 0)
 
         # Get weighted sum of sins & cos of angles to find average theta
         thetas = self.particles[:,2]
-        s_thetas = np.average(sin(thetas), axis=0, weights=self.likelihood_table)
-        c_thetas = np.average(cos(thetas), axis=0, weights=self.likelihood_table)
+        #s_thetas = np.average(sin(thetas), axis=0, weights=self.likelihood_table)
+        #c_thetas = np.average(cos(thetas), axis=0, weights=self.likelihood_table)
+        s_thetas = np.average(sin(thetas), axis=0)
+        c_thetas = np.average(cos(thetas), axis=0)
 
         # Generate odometry message
         odom = Odometry()
 
         # Set frame to map
         odom.header.frame_id = "/map"
-        odom.child_frame_id = "/base_link_pf"
+        odom.child_frame_id = self.particle_filter_frame
+        #odom.header.frame_id = self.particle_filter_frame
 
         # Set position based on average particle pose
         odom.pose.pose.position.x = avg_pose[0]
@@ -133,6 +195,31 @@ class ParticleFilter(Node):
 
         # Publish odometry message
         self.odom_pub.publish(odom)
+
+        # get current odom --> left_cam T matrix
+        # initialize transform
+        tf = TransformStamped()
+
+        # setup header
+        tf.header.stamp = self.get_clock().now().to_msg()
+        tf.header.frame_id = "/map"
+
+        # set child
+        tf.child_frame_id = "/base_link"
+
+        # set position
+        tf.transform.translation.x = avg_pose[0]
+        tf.transform.translation.y = avg_pose[1]
+        tf.transform.translation.z = 0.
+
+        # set orientation
+        tf.transform.rotation.x = quat[0]
+        tf.transform.rotation.y = quat[1]
+        tf.transform.rotation.z = quat[2]
+        tf.transform.rotation.w = quat[3]
+
+        # broadcast transform
+        self.tf_broadcaster.sendTransform(tf)
 
         # Initialize pose array to publish particles
         particle_msg = PoseArray()
@@ -163,6 +250,7 @@ class ParticleFilter(Node):
         
         # Set frame id to map
         particle_msg.header.frame_id = "/map"
+        #particle_msg.header.frame_id = self.particle_filter_frame
 
         # Set particles poses
         particle_msg.poses = poses
@@ -189,8 +277,8 @@ class ParticleFilter(Node):
 
         # Update particle positions if particles have been initialized based on odom
         if self.particles is not None:
-            self.particles = self.motion_model.evaluate(self.particles, [dx, dy, dtheta])
-        
+            self.particles = self.motion_model.evaluate(self.particles, [-dx, -dy, -dtheta])
+            
             # Publish average pose and particle updates
             self.averager()
 
@@ -205,20 +293,27 @@ class ParticleFilter(Node):
         if self.particles is not None and not self.laser_ct % self.laser_rate:
 
             # Get likelihood table
-            self.likelihood_table = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))**self.pow_value
-            self.likelihood_table /= np.sum(self.likelihood_table)
+            #print("ranges len", len(msg.ranges))
+            ranges_i = np.array(msg.ranges)[np.linspace(0,len(msg.ranges), self.sensor_model.num_beams_per_particle,endpoint=False,dtype=np.int32)]
+            self.likelihood_table = self.sensor_model.evaluate(self.particles, ranges_i) #**self.pow_value
+            #self.get_logger().info(f"Ranges  = {ranges_i}")
+            #self.get_logger().info(f"Likelihood = {self.likelihood_table}")
 
-            # Get indicies from which to sample
-            resample_inds = np.random.choice(a=self.num_particles, size=self.num_particles, p=self.likelihood_table)
+            if self.likelihood_table is not None:
+                self.likelihood_table /= np.sum(self.likelihood_table)
 
-            # Resample particles based on weights
-            self.particles = self.particles[resample_inds, :]
+                # Get indicies from which to sample
+                resample_inds = np.random.choice(a=self.num_particles, size=self.num_particles, p=self.likelihood_table)
 
-            # Publish average pose and particle updates
-            self.averager()
+                # Resample particles based on weights
+                self.particles = self.particles[resample_inds, :]
 
-            # self.get_logger().info("LASER UPDATE")
+                # Publish average pose and particle updates
+                self.averager()
 
+                # self.get_logger().info("LASER UPDATE")
+            else:
+                self.get_logger().info("Oh no")
     # Initialize pose based on 2D Pose estimate
     def pose_callback(self, msg):
 
@@ -251,6 +346,7 @@ class ParticleFilter(Node):
 
         # Generate theta values pulled from a uniform distribution of +- 15°
         theta_samples = np.random.uniform(-pi/12, pi/12, (self.num_particles - 1,1)) + yaw
+        #theta_samples = yaw * np.ones((self.num_particles, 1))
 
         # Add one particle at exactly the click pose
         x_samples = np.vstack((x_samples, pose.x))

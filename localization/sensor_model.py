@@ -156,6 +156,7 @@ class SensorModel:
         """
 
         if not self.map_set:
+            print("MAP NOT SET")
             return
 
         ####################################

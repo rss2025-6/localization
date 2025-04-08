@@ -25,8 +25,8 @@ class StraightLine(Node):
         driveCommand = AckermannDriveStamped()
         driveCommand.header.frame_id = "base_link"
         driveCommand.header.stamp = self.get_clock().now().to_msg()
-        driveCommand.drive.steering_angle= 0. #self.angle
-        driveCommand.drive.speed= 1.0 #self.VELOCITY
+        driveCommand.drive.steering_angle= 0.1 #self.angle
+        driveCommand.drive.speed= 0.2 #self.VELOCITY
         self.simple_publisher.publish(driveCommand)
 
 def main():
